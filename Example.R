@@ -19,8 +19,7 @@ library(lme4)
 library(ggplot2)
 #-------------------------------------------------------------------------------------------------------------#
 #Import a priori shapes
-setwd("PATH")
-source("Proposedshapes.R")
+setwd("/Volumes/Projects_EH/PRISMSUtah/Charlotte/Results_new/ShapeletR")
 source("ShapeletFuncs.R")
 #-------------------------------------------------------------------------------------------------------------#
 ####################################################################################################
@@ -50,12 +49,6 @@ start_time <- Sys.time()
 Kmean_output<-Shapelet_Kmeans(TrainX,TrainY,TestX,TestY,c(10,15),10,1,1)
 kmean_time<-Sys.time()-start_time
 
-#Proposed shapes (Euclidean)
-set.seed(123)
-start_time <- Sys.time()
-ProposedShapelet_output<-Shapelet_ProposedShapelet(TrainX,TrainY,TestX,TestY,0.3,c(10,30),c("shp11","shp6"),1,1)
-Proposed_time<-Sys.time()-start_time
-
 #Unique shapes (stratified)
 set.seed(123)
 start_time <- Sys.time()
@@ -84,7 +77,7 @@ PlotShapePartialDependencetemp1<-function(gbm.model,best.iter,topvalue,shplists,
   
   #Plot the minimum distance vs. predicted value
   p1<-plot(gbm.model, i.var = varlist2[1], n.trees = best.iter,return.grid=T)
-  plot(p1[,1],p1[,2], type="l",xlab="The inverse of the minimum distance between\n the shapelets and the time series", ylab="log(OR)",ylim=ylimc,main="Partial dependence plot")
+  plot(p1[,1],p1[,2], type="l",xlab="Inverse minimum distance", ylab="log(OR)",ylim=ylimc,main="Partial dependence plot")
   
 }
 PlotShapePartialDependencetemp2<-function(gbm.model,best.iter,topvalue,shplists,inputDistTrain,input,ylimc,outcome,shploclist,ylab1){
@@ -110,11 +103,9 @@ PlotShapePartialDependencetemp2<-function(gbm.model,best.iter,topvalue,shplists,
   plot(p1[,1],p1[,2], type="l",xlab="", ylab="",ylim=ylimc,main="")
 }
 pdf("Sim_all_partial.pdf",width=8,height=8)
-par(mfrow=c(3,3),mar=c(4,4,5,1)+ 0.1, mgp=c(3,.7,0), tck=-.01)
+par(mfrow=c(2,3),mar=c(4,4,5,1)+ 0.1, mgp=c(3,.7,0), tck=-.01)
 PlotShapePartialDependencetemp1(Kmean_output$gbm.model1,Kmean_output$gbm.best.iter1,1,Kmean_output$shplists1,Kmean_output$inputDistTrain,TrainX,TrainY,Kmean_output$inputLocTrain,ylimc=c(-0.5,2.5))
 PlotShapePartialDependencetemp2(UniqueFeatures_output$gbm.model1,UniqueFeatures_output$gbm.best.iter1,1,UniqueFeatures_output$shplists1,UniqueFeatures_output$inputDistTrain,TrainX,TrainY,UniqueFeatures_output$inputLocTrain,ylimc=c(-0.5,2.5))
-PlotShapePartialDependencetemp2(ProposedShapelet_output$gbm.model1,ProposedShapelet_output$gbm.best.iter1,1,ProposedShapelet_output$shplists1,ProposedShapelet_output$inputDistTrain,TrainX,TrainY,ProposedShapelet_output$inputLocTrain,ylimc=c(-0.5,2.5))
 mtext("K-means initialization", side = 3, line = -5, outer = TRUE)
-mtext("Feature-based initialization", side = 3, line = -24, outer = TRUE)
-mtext("Prior-knowledge initialization ", side = 3, line = -45, outer = TRUE)
+mtext("Extreme statistics initialization", side = 3, line = -32, outer = TRUE)
 dev.off()

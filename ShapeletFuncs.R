@@ -98,7 +98,7 @@ GetSlidingWindow<-function(input,lshp){
 slopefun<-function(vector1){
   lvector1<-length(vector1)
   slope1<-(vector1[lvector1]-vector1[1])/(lvector1-1)
-  return(abs(slope1))
+  return(slope1)
 }
 
 #Lag function (for feature-based initialization method)
@@ -135,6 +135,8 @@ GetUniqueSubsequence<-function(input,lshp){
   #Slope fun
   slopefun1<-rollapply(input_transpose, lshp, function(x) slopefun(x))
   loc_vector<-rbind(loc_vector,which(slopefun1==max(slopefun1),arr.ind=T))
+  loc_vector<-rbind(loc_vector,which(slopefun1==min(slopefun1),arr.ind=T))
+
   #AR(1)
   #ar1<-rollapply(input_transpose, lshp, function(x) ar(x))
   #loc_vector<-rbind(loc_vector,which(ar1==max(ar1),arr.ind=T))
@@ -268,75 +270,6 @@ Shapelet_Kmeans<-function(TrainX,TrainY,TestX,TestY,lshp,ncentroid,bag.fraction1
 }
 
 #Shapelet_Kmeans(TrainX,TrainY,TestX,TestY,c(10,15),10)
-#-------------------------------------------------------------------------------------------------------------#
-#Proposed shape (output)
-Shapelet_ProposedShapelet<-function(TrainX,TrainY,TestX,TestY,MinMaxDiff,lshp,shpfunc,bag.fraction1,train.fraction1){
-  #Return number of shapelet
-  #If lshp <- c(10,15), meaning two shapelets, one with length of 10 and another with length of 15
-  nshp<-length(lshp)
-  #Return number of proposed a priori functions
-  #If shpfunc <- c("shp1","shp2"), meaning two a priori functions
-  nshpfunc<-length(shpfunc)
-  #Get the combination of number of shapelet and number of proposed functions for evaluations 
-  nshp_nfunc_combine <- expand.grid(x = 1:nshp, y = 1:nshpfunc)
-  
-  #Get an empty list for shapelets, distance matrix (Train & Test), location of the minimum distance (Train & Test)
-  shplists <- list()
-  inputDistTrain <- list()
-  inputLocTrain <- list()
-  inputDistTest <- list()
-  inputlocTest <- list()
-  
-  for(i in 1:dim(nshp_nfunc_combine)[1]){ 
-    #For each combination 
-    lshp_loc <- nshp_nfunc_combine[i,1] 
-    lshpfuc_loc <- nshp_nfunc_combine[i,2]
-    
-    lshp1<-lshp[lshp_loc]#Get number of shapelets
-    shpfunc1<-shpfunc[lshpfuc_loc]#Get propposed shapelet function
-    shplists[[i]]<-getshplist(MinMaxDiff,lshp1,get(shpfunc1)) #Get propposed shapelets
-    
-    #Get sliding windown
-    SWtrain<-GetSlidingWindow(minmax(TrainX),lshp1)
-    SWtest<-GetSlidingWindow(minmax(TestX),lshp1)
-    
-    #Get the minimum distance and the location of minimum distance
-    inputDTrain1<-GetDistanceVectorsE(SWtrain,shplists[[i]])
-    inputDistTrain[[i]]<-inputDTrain1[[1]]
-    inputLocTrain[[i]]<-inputDTrain1[[2]]
-    inputDTest1<-GetDistanceVectorsE(SWtest,shplists[[i]])
-    inputDistTest[[i]]<-inputDTest1[[1]]
-    inputlocTest[[i]]<-inputDTest1[[2]]
-    
-    #For rbind.fill function
-    shplists[[i]]<-as.data.frame(shplists[[i]])
-  }
-  #rbind across list (rbind.fill: for data frames with different lengths of the row)
-  shplists1<-do.call(rbind.fill,shplists)
-  
-  inputDistTrain1<-do.call(cbind,inputDistTrain)
-  inputLocTrain1<-do.call(cbind,inputLocTrain)
-  inputDistTest1<-do.call(cbind,inputDistTest)
-  inputlocTest1<-do.call(cbind,inputlocTest)
-  
-  #Generate the outputs 
-  output1<-ModelPredictionBV2(inputDistTrain1,TrainY,inputDistTest1,TestY,bag.fraction1,train.fraction1)
-  
-  #AUC/ACC
-  AUC_ACC<-output1[[1]]
-  
-  #gbm.model1 
-  gbm.model1<-output1[[3]]
-  
-  #gbm.best.iter1 
-  gbm.best.iter1<-output1[[4]]
-  
-  return(list(AUC_ACC=AUC_ACC,shplists1=shplists1,
-              gbm.model1=gbm.model1,gbm.best.iter1=gbm.best.iter1,
-              inputDistTrain=inputDistTrain1,inputDistTest=inputDistTest1,
-              inputLocTrain=inputLocTrain1,inputlocTest=inputlocTest1))
-}
-#Shapelet_ProposedShapelet(TrainX,TrainY,TestX,TestY,0.3,c(10,30),c("shp1","shp5"))
 #-------------------------------------------------------------------------------------------------------------#
 #Shapes with unique features (output)
 Shapelet_UniqueFeatures<-function(TrainX,TrainY,TestX,TestY,lshp,bag.fraction1,train.fraction1){
