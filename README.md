@@ -17,7 +17,7 @@ We used our proposed shapelet methods (K-means and extreme statistics) to search
 
 We presented the most important shapelet, its best matched location, and its assocation with the outcome using the partial depdence plot. 
 
-![](Sim_all_partial.png){width=65%}
+![](Sim_all_partial.png)
 
 # Versions of R and Package  
 R version
