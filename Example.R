@@ -76,7 +76,7 @@ PlotShapePartialDependencetemp1<-function(gbm.model,
   plot(p1[,1],p1[,2], type="l",xlab="Inverse minimum distance", ylab="log(OR)",main="Partial dependence plot")
   
 }
-pdf("Sim_all_partial.pdf",width=8,height=8)
+png("Sim_all_partial.png",width=1200,height=1000,res=200)
 par(mfrow=c(2,3),mar=c(4,4,5,1)+ 0.1, mgp=c(3,.7,0), tck=-.01)
 PlotShapePartialDependencetemp1(Kmean_output$gbm1,
                                 Kmean_output$shplists1,
@@ -94,5 +94,5 @@ PlotShapePartialDependencetemp1(UniqueFeatures_output$gbm1,
                                 TrainY,
                                 UniqueFeatures_output$inputLocTrain)
 mtext("K-means initialization", side = 3, line = -5, outer = TRUE)
-mtext("Extreme statistics initialization", side = 3, line = -32, outer = TRUE)
+mtext("Extreme statistics initialization", side = 3, line = -20, outer = TRUE)
 dev.off()
