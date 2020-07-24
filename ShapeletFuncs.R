@@ -1,25 +1,11 @@
 #-------------------------------------------------------------------------------------------------------------#
 library(rdist)
-library(dtwclust)
-library(randomForest)
 library(TSPred)
 library(pROC)
-library(matrixStats)
-library(qlcMatrix)
-library(TSEntropies)
 library(dplyr)
 library(plyr)
 library(zoo)
-library(gbm)
-library(rpart)
-library(rpart.plot)
-library(lme4)
-library(ggplot2)
-#-------------------------------------------------------------------------------------------------------------#
-#set the color
-set.seed(222)
-colorlist = grDevices::colors()[grep('gr(a|e)y', grDevices::colors(), invert = T)]
-color1=sample(colorlist, 10)
+library(xgboost)
 #-------------------------------------------------------------------------------------------------------------#
 #Insert shape to simulated data
 getDataWithShapeV2<-function(ExampleShape1,
@@ -65,7 +51,8 @@ getDataWithShapeV2<-function(ExampleShape1,
   
   return(list(data,Y,prob,nrow(data),length(randrow),randcol,data1,data0))
 }
-#Normalize the data
+#-------------------------------------------------------------------------------------------------------------#
+#Normalize the data (Min/max scalar)
 minmax<-function(input){
   normalized = (input-min(input))/(max(input)-min(input))
   return(normalized)
@@ -90,22 +77,16 @@ getshplist<-function(inc,lshp,func){
 GetSlidingWindow<-function(input,lshp){
   inputlist <- split(input, seq(nrow(input))) #split the data
   inputlist2<-lapply(inputlist,as.numeric) #Change from data frame to vector
-  mwlist<-lapply(inputlist2,slidingWindows,swSize=lshp) #Create sliding window
+  mwlist<-lapply(inputlist2,TSPred::slidingWindows,swSize=lshp) #Create sliding window
   return(mwlist)
 }
 #-------------------------------------------------------------------------------------------------------------#
-#Slope function (for feature-based initialization method)
+#Slope function (for extreme statistic initialization method)
 slopefun<-function(vector1){
   lvector1<-length(vector1)
   slope1<-(vector1[lvector1]-vector1[1])/(lvector1-1)
   return(slope1)
 }
-
-#Lag function (for feature-based initialization method)
-#ar<-function(vector1){
-#  a<-summary(lm(vector1~lag(vector1)))$coefficient[2,1]
-#  return(a)
-#}
 #-------------------------------------------------------------------------------------------------------------#
 # Select the sliding window with the top characteristics and return initialized shapelets (for stratified analysis)
 #Input: Input (TrainX), lshp: shapelet lengths
@@ -116,7 +97,7 @@ GetUniqueSubsequence<-function(input,lshp){
   input_transpose<-as.data.frame(input_transpose)
   
   #Rolling mean 
-  mean1<-rollapply(input_transpose, lshp, mean)
+  mean1<-zoo::rollapply(input_transpose, lshp, mean)
   loc_vector<-which(mean1==max(mean1),arr.ind=T)
   loc_vector<-rbind(loc_vector,which(mean1==min(mean1),arr.ind=T))
   #Rolling median 
@@ -136,10 +117,6 @@ GetUniqueSubsequence<-function(input,lshp){
   slopefun1<-rollapply(input_transpose, lshp, function(x) slopefun(x))
   loc_vector<-rbind(loc_vector,which(slopefun1==max(slopefun1),arr.ind=T))
   loc_vector<-rbind(loc_vector,which(slopefun1==min(slopefun1),arr.ind=T))
-
-  #AR(1)
-  #ar1<-rollapply(input_transpose, lshp, function(x) ar(x))
-  #loc_vector<-rbind(loc_vector,which(ar1==max(ar1),arr.ind=T))
   
   #Return the shapes with the unique characteristics 
   Cand_shp<-matrix(NA,nrow=dim(loc_vector)[1],ncol=lshp)
@@ -211,7 +188,7 @@ getpredY2<-function(xtest,xtrain,ytrain,ytest){
   return(miny)
 }
 #-------------------------------------------------------------------------------------------------------------#
-Shapelet_Kmeans<-function(TrainX,TrainY,TestX,TestY,lshp,ncentroid,bag.fraction1,train.fraction1){
+Shapelet_Kmeans<-function(TrainX,TrainY,TestX,TestY,lshp,ncentroid){
   
   #Return number of shapelet
   #If lshp <- c(10,15), meaning two shapelets, one with length of 10 and another with length of 15
@@ -251,28 +228,29 @@ Shapelet_Kmeans<-function(TrainX,TrainY,TestX,TestY,lshp,ncentroid,bag.fraction1
   inputDistTest1<-do.call(cbind,inputDistTest)
   inputlocTest1<-do.call(cbind,inputlocTest)
   
-  #Generate the outputs 
-  output1<-ModelPredictionBV2(inputDistTrain1,TrainY,inputDistTest1,TestY,bag.fraction1,train.fraction1)
+  #Take the inverse of the shapelet distance 
+  inputDistTrain_inv<-1/(inputDistTrain1+0.1)
+  inputDistTest_inv<-1/(inputDistTest1+0.1)
   
-  #AUC/ACC
-  AUC_ACC<-output1[[1]]
+  inputDistTrain_inv = data.frame(inputDistTrain_inv)
   
-  #gbm.model1 
-  gbm.model1<-output1[[3]]
+  #Combine the outcome and distance data and assignt the variable name of the outcome to "y"
+  #Training set
+  dtrain<-xgboost::xgb.DMatrix(as.matrix(inputDistTrain_inv),label = as.numeric(TrainY))
   
-  #gbm.best.iter1 
-  gbm.best.iter1<-output1[[4]]
-  
-  return(list(AUC_ACC=AUC_ACC,shplists1=shplists1,
-              gbm.model1=gbm.model1,gbm.best.iter1=gbm.best.iter1,
-              inputDistTrain=inputDistTrain1,inputDistTest=inputDistTest1,
-              inputLocTrain=inputLocTrain1,inputlocTest=inputlocTest1))
-}
+  #GBM 
+  gbm1<-xgboost::xgboost(data=dtrain,nround=100,verbose=FALSE,objective="binary:logistic")
 
-#Shapelet_Kmeans(TrainX,TrainY,TestX,TestY,c(10,15),10)
+  return(list(gbm1=gbm1,
+              shplists1=shplists1,
+              inputDistTrain=inputDistTrain1,
+              inputDistTest=inputDistTest1,
+              inputLocTrain=inputLocTrain1,
+              inputlocTest=inputlocTest1))
+}
 #-------------------------------------------------------------------------------------------------------------#
 #Shapes with unique features (output)
-Shapelet_UniqueFeatures<-function(TrainX,TrainY,TestX,TestY,lshp,bag.fraction1,train.fraction1){
+Shapelet_UniqueFeatures<-function(TrainX,TrainY,TestX,TestY,lshp){
   
   temp_position<-data.frame(TrainY,1:length(unlist(TrainY)))
   colnames(temp_position)<-c("TrainY","Position")
@@ -327,120 +305,25 @@ Shapelet_UniqueFeatures<-function(TrainX,TrainY,TestX,TestY,lshp,bag.fraction1,t
   inputDistTest1<-do.call(cbind,inputDistTest)
   inputlocTest1<-do.call(cbind,inputlocTest)
   
-  #Generate the outputs 
-  output1<-ModelPredictionBV2(inputDistTrain1,TrainY,inputDistTest1,TestY,bag.fraction1,train.fraction1)
-  
-  #AUC/ACC
-  AUC_ACC<-output1[[1]]
-  
-  #gbm.model1 
-  gbm.model1<-output1[[3]]
-  
-  #gbm.best.iter1 
-  gbm.best.iter1<-output1[[4]]
-  
-  return(list(AUC_ACC=AUC_ACC,shplists1=shplists1,
-              gbm.model1=gbm.model1,gbm.best.iter1=gbm.best.iter1,
-              inputDistTrain=inputDistTrain1,inputDistTest=inputDistTest1,
-              inputLocTrain=inputLocTrain1,inputlocTest=inputlocTest1))
-}
-#-------------------------------------------------------------------------------------------------------------#
-#Fit into a model (Binary response, inverse distance matrix)
-ModelPredictionBV2<-function(inputDistTrain,outcomeTrain,inputDistTest,outcomeTest,bag.fraction1,train.fraction1,interdep=1,randomState=1){
-  
   #Take the inverse of the shapelet distance 
-  inputDistTrain_inv<-1/(inputDistTrain+0.1)
-  inputDistTest_inv<-1/(inputDistTest+0.1)
+  inputDistTrain_inv<-1/(inputDistTrain1+0.1)
+  inputDistTest_inv<-1/(inputDistTest1+0.1)
+  
+  inputDistTrain_inv = data.frame(inputDistTrain_inv)
   
   #Combine the outcome and distance data and assignt the variable name of the outcome to "y"
   #Training set
-  finaldtTrain<-data.frame(outcomeTrain,inputDistTrain_inv)
-  colnames(finaldtTrain)[1] <- "y" 
+  dtrain<-xgboost::xgb.DMatrix(as.matrix(inputDistTrain_inv),label = as.numeric(TrainY))
   
-  #Test set
-  finaldtTest<-data.frame(outcomeTest,inputDistTest_inv)
-  colnames(finaldtTest)[1] <- "y" 
-  
-  set.seed(randomState)
   #GBM 
-  gbm1<-gbm(y ~ ., data = finaldtTrain,
-            distribution = "bernoulli", n.trees = 1000, 
-            shrinkage = 0.01,interaction.depth = interdep, 
-            bag.fraction = bag.fraction1, train.fraction = train.fraction1,  
-            n.minobsinnode = 10, cv.folds = 3,n.cores = 3)  
-  best.iter <- gbm.perf(gbm1, method = "cv", plot.it = FALSE)
+  gbm1<-xgboost::xgboost(data=dtrain,nround=100,verbose=FALSE,objective="binary:logistic")
   
-  #GBM (CV:AUC)
-  cv_prediction<-exp(gbm1$cv.fitted)/(1+exp(gbm1$cv.fitted))
-  a.gbmcv<-roc(unlist(outcomeTrain[1:length(cv_prediction)]),as.numeric(cv_prediction),quiet=T)
-  a.gbmcv.out<-coords(a.gbmcv, "best", ret=c("threshold", "specificity", "sensitivity", "accuracy",
-                                             "precision", "recall"), best.method=c("youden"), transpose = TRUE)
-  a.gbmcv.out.f1<-2*a.gbmcv.out["precision"]*a.gbmcv.out["recall"]/(a.gbmcv.out["precision"]+a.gbmcv.out["recall"])
-  
-  #GBM (Train: AUC,accuracy)
-  PredTrainY_gbm1<-predict(gbm1,newdata=finaldtTrain, n.trees = best.iter,type="response")
-  a.gbm1<-roc(unlist(outcomeTrain),as.numeric(PredTrainY_gbm1),quiet=T)
-  a.gbm1.out<-coords(a.gbm1, "best", ret=c("threshold", "specificity", "sensitivity", "accuracy",
-                                           "precision", "recall"), best.method=c("youden"), transpose = TRUE)
-  a.gbm1.out.f1<-2*a.gbm1.out["precision"]*a.gbm1.out["recall"]/(a.gbm1.out["precision"]+a.gbm1.out["recall"])
-  #GBM (Test: AUC,accuracy)
-  PredTestY_gbm1<-predict(gbm1,newdata=finaldtTest, n.trees = best.iter,type="response")
-  a.gbm2<-roc(as.numeric(unlist(outcomeTest)),as.numeric(PredTestY_gbm1),quiet=T)
-  a.gbm2.out<-coords(a.gbm2, "best", ret=c("threshold", "specificity", "sensitivity", "accuracy",
-                                           "precision", "recall"), best.method=c("youden"), transpose = TRUE)
-  a.gbm2.out.f1<-2*a.gbm2.out["precision"]*a.gbm2.out["recall"]/(a.gbm2.out["precision"]+a.gbm2.out["recall"])
-  
-  #Factorize the outcome for random forest 
-  finaldtTrain$y<-as.factor(finaldtTrain$y)
-  #Fill in missing value
-  finaldtTrain.roughfix <- na.roughfix(finaldtTrain)
-  finaldtTest.roughfix <- na.roughfix(finaldtTest)
-  #Random forest 
-  set.seed(randomState)
-  model1 <- randomForest(y ~ ., data = finaldtTrain.roughfix, importance = TRUE)
-  
-  #random forest (Train: AUC,accuracy)
-  PredTrainY1<-predict(model1,newdata=finaldtTrain.roughfix,type="prob")
-  a1<-roc(unlist(outcomeTrain),as.numeric(PredTrainY1[,2]),quiet=T)
-  a1.out<-coords(a1, "best", ret=c("threshold", "specificity", "sensitivity", "accuracy",
-                                   "precision", "recall"), best.method=c("youden"), transpose = TRUE)
-  
-  #random forest (Test: AUC,accuracy)
-  PredTestY1<-predict(model1,newdata=finaldtTest.roughfix,type="prob")
-  a2<-roc(unlist(outcomeTest),as.numeric(PredTestY1[,2]),quiet=T)
-  a2.out<-coords(a2, "best", ret=c("threshold", "specificity", "sensitivity", "accuracy",
-                                   "precision", "recall"), best.method=c("youden"), transpose = TRUE)
-  #random forest (Variable importance list)
-  implist<-as.data.frame(importance(model1))
-  implist<-implist[c("MeanDecreaseAccuracy","MeanDecreaseGini")]
-  
-  #Logistic regression 
-  model1 <- glm(y~ ., data = finaldtTrain, family = binomial)
-  
-  #Logistic (Train: AUC,accuracy)
-  PredTrainY2<-predict(model1,finaldtTrain,type="response")
-  a3<-roc(unlist(outcomeTrain),as.numeric(PredTrainY2),quiet=T)
-  a3.out<-coords(a3, "best", ret=c("threshold", "specificity", "sensitivity", "accuracy",
-                                   "precision", "recall"), best.method=c("youden"), transpose = TRUE)
-  
-  #Logistic (Train: AUC,accuracy)
-  PredTestY2<-predict(model1,newdata=finaldtTest,type="response")
-  a4<-roc(unlist(outcomeTest),as.numeric(PredTestY2),quiet=T)
-  a4.out<-coords(a4, "best", ret=c("threshold", "specificity", "sensitivity", "accuracy",
-                                   "precision", "recall"), best.method=c("youden"), transpose = TRUE)
-  
-  #Combine the output
-  tab1<-data.frame(round(a.gbmcv$auc,4),round(a.gbmcv.out["accuracy"],4),round(a.gbmcv.out["precision"],4),round(a.gbmcv.out["recall"],4),round(a.gbmcv.out.f1,4),
-                   round(a.gbm1$auc,4),round(a.gbm1.out["accuracy"],4),round(a.gbm1.out["precision"],4),round(a.gbm1.out["recall"],4),round(a.gbm1.out.f1,4),
-                   round(a.gbm2$auc,4),round(a.gbm2.out["accuracy"],4),round(a.gbm2.out["precision"],4),round(a.gbm2.out["recall"],4),round(a.gbm2.out.f1,4))
-  colnames(tab1)<-c("GBM:CVAUC","GBM:CVACC","GBM:CVPrecision","GBM:CVRecall","GBM:CVF1",
-                    "GBM:trainAUC","GBM:trainACC","GBM:trainPrecision","GBM:trainRecall","GBM:trainF1",
-                    "GBM:testAUC","GBM:testACC","GBM:testPrecision","GBM:testRecall","GBM:testF1")
-  
-  tab2_RFLR<-data.frame(round(a1$auc,2),round(a1.out["accuracy"],2),round(a2$auc,2),round(a2.out["accuracy"],2),
-                        round(a3$auc,2),round(a3.out["accuracy"],2),round(a4$auc,2),round(a4.out["accuracy"],2))
-  colnames(tab2_RFLR)<-c("RF:trainAUC","RF:trainACC","RF:testAUC","RF:testACC",
-                         "LR:trainAUC","LR:trainACC","LR:testAUC","LR:testACC")
-  return(list(tab1,tab2_RFLR,gbm1,best.iter))
+  return(list(gbm1=gbm1,
+              shplists1=shplists1,
+              inputDistTrain=inputDistTrain1,
+              inputDistTest=inputDistTest1,
+              inputLocTrain=inputLocTrain1,
+              inputlocTest=inputlocTest1))
 }
+
 
