@@ -20,7 +20,7 @@ We presented the most important shapelet, its best matched location, and its ass
 ![](Sim_all_partial.png)
 
 # Versions of R and Package  
-R version
+R version\
 4.0.1
 
 Packages\
